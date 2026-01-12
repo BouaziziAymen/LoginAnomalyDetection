@@ -1,0 +1,23 @@
+server:
+  port: 8080
+
+spring:
+  couchbase:
+    connection-string: couchbase://localhost
+    username: admin
+    password: password
+  data:
+    couchbase:
+      bucket-name: security
+      scope-name: _default
+      collection-name: login
+
+fraud:
+  lr:
+    intercept: -2.0
+    weights:
+      distinctIp10m: 0.55
+      distinctCountries30m: 1.10
+      eventsPerMin30m: 0.35
+      impossibleTravel: 1.60
+      deviceChanges30m: 0.60

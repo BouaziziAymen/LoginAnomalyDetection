@@ -1,0 +1,47 @@
+services:
+  couchbase:
+    image: couchbase:community-7.6.2
+    ports:
+      - "8091-8096:8091-8096"
+      - "11210:11210"
+    environment:
+      - COUCHBASE_ADMINISTRATOR_USERNAME=admin
+      - COUCHBASE_ADMINISTRATOR_PASSWORD=password
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8091/ui/index.html"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+
+  cb-init:
+    image: couchbase:community-7.6.2
+    depends_on:
+      couchbase:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-lc"]
+    command: >
+      "
+      sleep 3 &&
+      couchbase-cli cluster-init -c couchbase:8091
+        --cluster-username admin --cluster-password password
+        --services data,index,query
+        --cluster-ramsize 512 --cluster-index-ramsize 256 || true;
+
+      couchbase-cli bucket-create -c couchbase:8091 -u admin -p password
+        --bucket security --bucket-type couchbase --bucket-ramsize 256 || true;
+
+      couchbase-cli user-manage -c couchbase:8091 -u admin -p password
+        --set --rbac-username app --rbac-password app
+        --roles bucket_full_access[security],query_manage,index_manage
+        --auth-domain local || true;
+
+      curl -u admin:password -sS http://couchbase:8091/pools/default/buckets/security/scopes -d name=_default || true;
+      curl -u admin:password -sS http://couchbase:8091/pools/default/buckets/security/scopes/_default/collections -d name=login || true;
+
+      curl -u admin:password -sS http://couchbase:8093/query/service -d 'statement=
+        CREATE INDEX idx_login_features
+        ON `security`.`_default`.`login`(type, userId, tsEpoch, ip, country, deviceId)
+        WHERE type = \"login_event\"' || true;
+
+      echo 'Couchbase initialized.'
+      "

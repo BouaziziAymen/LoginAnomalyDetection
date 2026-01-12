@@ -1,0 +1,80 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Login Anomaly Detector Demo</title>
+    <style>
+        body { font-family: system-ui, Arial; margin: 24px; max-width: 900px; }
+        button { padding: 10px 14px; margin: 6px 6px 6px 0; cursor: pointer; }
+        input { padding: 8px; width: 220px; }
+        pre { background: #f6f6f6; padding: 12px; overflow: auto; }
+        .row { margin: 10px 0; }
+    </style>
+</head>
+<body>
+<h2>Login Anomaly Detector (Spring + Couchbase + LR)</h2>
+
+<div class="row">
+    <label>UserId:</label>
+    <input id="userId" value="u123"/>
+    <label style="margin-left:10px;">At (ISO):</label>
+    <input id="at" placeholder="optional"/>
+</div>
+
+<div class="row">
+    <button onclick="normal()">Add normal login</button>
+    <button onclick="suspicious()">Add suspicious sequence</button>
+    <button onclick="risk()">Check risk</button>
+    <button onclick="clearOut()">Clear output</button>
+</div>
+
+<h3>Output</h3>
+<pre id="out"></pre>
+
+<script>
+    const out = document.getElementById('out');
+    const uid = () => document.getElementById('userId').value;
+    const atv = () => document.getElementById('at').value;
+
+    function log(obj) { out.textContent += JSON.stringify(obj, null, 2) + "\n\n"; }
+    function nowPlus(minutes) { return new Date(Date.now() + minutes*60000).toISOString(); }
+
+    async function postLogin(payload) {
+      const res = await fetch('/events/login', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+      });
+      log({request: payload, response: await res.json()});
+    }
+
+    async function normal() {
+      await postLogin({ userId: uid(), ip: "41.224.10.7", country: "TN", deviceId: "d1", timestamp: nowPlus(0) });
+    }
+
+    async function suspicious() {
+      const t0 = new Date(Date.now() - 15*60000).toISOString();
+      const t1 = new Date(Date.now() - 2*60000).toISOString();
+
+      await postLogin({ userId: uid(), ip: "1.2.3.4", country: "FR", deviceId: "d1", timestamp: t0 });
+      await postLogin({ userId: uid(), ip: "41.224.10.7", country: "TN", deviceId: "d1", timestamp: t1 });
+
+      for (let i=0;i<6;i++) {
+        await postLogin({ userId: uid(), ip: `10.0.0.${i+1}`, country: "TN", deviceId: "d1",
+          timestamp: new Date(Date.now() - (5-i)*60000).toISOString() });
+      }
+    }
+
+    async function risk() {
+      const at = atv();
+      const url = at ? `/users/${encodeURIComponent(uid())}/risk?at=${encodeURIComponent(at)}`
+                     : `/users/${encodeURIComponent(uid())}/risk`;
+      const res = await fetch(url);
+      log(await res.json());
+    }
+
+    function clearOut() { out.textContent = ""; }
+</script>
+</body>
+</html>
