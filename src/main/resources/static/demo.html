@@ -1,80 +1,200 @@
+<!-- index.html -->
 <!doctype html>
-<html>
+<html lang="fr">
 <head>
     <meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1"/>
-    <title>Login Anomaly Detector Demo</title>
-    <style>
-        body { font-family: system-ui, Arial; margin: 24px; max-width: 900px; }
-        button { padding: 10px 14px; margin: 6px 6px 6px 0; cursor: pointer; }
-        input { padding: 8px; width: 220px; }
-        pre { background: #f6f6f6; padding: 12px; overflow: auto; }
-        .row { margin: 10px 0; }
-    </style>
+    <title>Devoteam Interview — Login Anomaly Detector</title>
+    <link rel="stylesheet" href="styles.css"/>
 </head>
+
 <body>
-<h2>Login Anomaly Detector (Spring + Couchbase + LR)</h2>
+<div class="wrap">
+    <header>
+        <div class="title">
+            <h1>Devoteam Interview</h1>
+            <p>Démo : détection d’anomalies de connexion (Spring Boot + Couchbase + ML simple).</p>
+        </div>
+        <div class="pill">API locale : <span class="kbd">/events/login</span> • <span class="kbd">/users/{id}/risk</span></div>
+    </header>
 
-<div class="row">
-    <label>UserId:</label>
-    <input id="userId" value="u123"/>
-    <label style="margin-left:10px;">At (ISO):</label>
-    <input id="at" placeholder="optional"/>
+    <div class="grid">
+        <section class="card">
+            <h2>Paramètres de test</h2>
+
+            <div class="form">
+                <div class="field">
+                    <label for="userId">Utilisateur</label>
+                    <select id="userId">
+                        <option value="u123" selected>u123</option>
+                        <option value="u456">u456</option>
+                        <option value="u789">u789</option>
+                    </select>
+                </div>
+
+                <div class="field">
+                    <label for="country">Pays</label>
+                    <select id="country">
+                        <option value="TN" selected>Tunisie (TN)</option>
+                        <option value="FR">France (FR)</option>
+                        <option value="DE">Allemagne (DE)</option>
+                        <option value="IT">Italie (IT)</option>
+                        <option value="ES">Espagne (ES)</option>
+                        <option value="GB">Royaume-Uni (GB)</option>
+                        <option value="US">États-Unis (US)</option>
+                    </select>
+                </div>
+
+                <div class="field">
+                    <label for="at">Date/heure d’analyse (optionnel)</label>
+                    <input id="at" placeholder="Ex: 2026-01-12T21:10:01Z"/>
+                </div>
+
+                <div class="field">
+                    <label for="deviceId">Device</label>
+                    <input id="deviceId" value="d1" placeholder="Ex: d1"/>
+                </div>
+
+                <div class="hint">
+                    <strong>ISO 8601</strong> = format standard de date/heure utilisé par les API.
+                    Exemple : <span class="kbd">2026-01-12T21:10:01Z</span> (le <span class="kbd">Z</span> = UTC).
+                    Laisse vide pour utiliser “maintenant”.
+                </div>
+            </div>
+
+            <div class="actions">
+                <button class="secondary" onclick="normal()">Ajouter une connexion normale</button>
+                <button onclick="suspicious()">Ajouter une séquence suspecte</button>
+                <button class="primary" onclick="risk()">Calculer le risque</button>
+                <button class="danger" onclick="clearOut()">Vider la sortie</button>
+            </div>
+
+            <div class="toast" id="status"></div>
+        </section>
+
+        <section class="card">
+            <div class="outHead">
+                <h2>Sortie</h2>
+                <div class="right"><span class="dot" id="dot"></span><span id="net">Prêt</span></div>
+            </div>
+            <pre id="out"></pre>
+        </section>
+    </div>
 </div>
-
-<div class="row">
-    <button onclick="normal()">Add normal login</button>
-    <button onclick="suspicious()">Add suspicious sequence</button>
-    <button onclick="risk()">Check risk</button>
-    <button onclick="clearOut()">Clear output</button>
-</div>
-
-<h3>Output</h3>
-<pre id="out"></pre>
 
 <script>
     const out = document.getElementById('out');
-    const uid = () => document.getElementById('userId').value;
-    const atv = () => document.getElementById('at').value;
+    const statusEl = document.getElementById('status');
+    const netEl = document.getElementById('net');
+    const dot = document.getElementById('dot');
 
-    function log(obj) { out.textContent += JSON.stringify(obj, null, 2) + "\n\n"; }
+    const uid = () => document.getElementById('userId').value;
+    const country = () => document.getElementById('country').value;
+    const atv = () => document.getElementById('at').value.trim();
+    const device = () => document.getElementById('deviceId').value.trim() || "d1";
+
+    function log(obj) {
+      out.textContent += JSON.stringify(obj, null, 2) + "\n\n";
+      out.scrollTop = out.scrollHeight;
+    }
+
+    function nowISO() { return new Date().toISOString(); }
     function nowPlus(minutes) { return new Date(Date.now() + minutes*60000).toISOString(); }
 
+    function setNet(state, msg) {
+      netEl.textContent = msg;
+      if (state === 'ok') dot.style.background = 'var(--ok)';
+      if (state === 'warn') dot.style.background = 'var(--warn)';
+      if (state === 'err') dot.style.background = 'var(--danger)';
+    }
+
+    async function safeJson(res) {
+      const txt = await res.text();
+      try { return JSON.parse(txt); } catch { return { raw: txt }; }
+    }
+
     async function postLogin(payload) {
+      setNet('warn', 'Envoi…');
+      statusEl.textContent = "Envoi d'un événement login…";
+
       const res = await fetch('/events/login', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify(payload)
       });
-      log({request: payload, response: await res.json()});
+
+      const body = await safeJson(res);
+      log({ request: payload, response: body, http: res.status });
+
+      if (!res.ok) {
+        setNet('err', 'Erreur API');
+        statusEl.textContent = "Erreur côté API (voir la sortie).";
+        return;
+      }
+
+      setNet('ok', 'OK');
+      statusEl.textContent = "Événement enregistré.";
     }
 
     async function normal() {
-      await postLogin({ userId: uid(), ip: "41.224.10.7", country: "TN", deviceId: "d1", timestamp: nowPlus(0) });
+      await postLogin({
+        userId: uid(),
+        ip: "41.224.10.7",
+        country: country(),
+        deviceId: device(),
+        timestamp: nowISO()
+      });
     }
 
     async function suspicious() {
+      // 1) Connexion depuis un autre pays il y a 15 minutes
       const t0 = new Date(Date.now() - 15*60000).toISOString();
+      // 2) Retour “rapide” 2 minutes avant maintenant
       const t1 = new Date(Date.now() - 2*60000).toISOString();
 
-      await postLogin({ userId: uid(), ip: "1.2.3.4", country: "FR", deviceId: "d1", timestamp: t0 });
-      await postLogin({ userId: uid(), ip: "41.224.10.7", country: "TN", deviceId: "d1", timestamp: t1 });
+      await postLogin({ userId: uid(), ip: "1.2.3.4", country: "FR", deviceId: device(), timestamp: t0 });
+      await postLogin({ userId: uid(), ip: "41.224.10.7", country: "TN", deviceId: device(), timestamp: t1 });
 
-      for (let i=0;i<6;i++) {
-        await postLogin({ userId: uid(), ip: `10.0.0.${i+1}`, country: "TN", deviceId: "d1",
-          timestamp: new Date(Date.now() - (5-i)*60000).toISOString() });
+      // 3) Rafale d’IPs (bruteforce / bot)
+      for (let i = 0; i < 6; i++) {
+        await postLogin({
+          userId: uid(),
+          ip: `10.0.0.${i+1}`,
+          country: "TN",
+          deviceId: device(),
+          timestamp: new Date(Date.now() - (5-i)*60000).toISOString()
+        });
       }
     }
 
     async function risk() {
+      setNet('warn', 'Calcul…');
+      statusEl.textContent = "Calcul du score de risque…";
+
       const at = atv();
-      const url = at ? `/users/${encodeURIComponent(uid())}/risk?at=${encodeURIComponent(at)}`
-                     : `/users/${encodeURIComponent(uid())}/risk`;
+      const url = at
+        ? `/users/${encodeURIComponent(uid())}/risk?at=${encodeURIComponent(at)}`
+        : `/users/${encodeURIComponent(uid())}/risk`;
+
       const res = await fetch(url);
-      log(await res.json());
+      const body = await safeJson(res);
+      log({ request: { url }, response: body, http: res.status });
+
+      if (!res.ok) {
+        setNet('err', 'Erreur API');
+        statusEl.textContent = "Erreur côté API (voir la sortie).";
+        return;
+      }
+
+      setNet('ok', 'OK');
+      statusEl.textContent = "Risque calculé.";
     }
 
-    function clearOut() { out.textContent = ""; }
+    function clearOut() {
+      out.textContent = "";
+      statusEl.textContent = "";
+      setNet('ok', 'Prêt');
+    }
 </script>
 </body>
 </html>
