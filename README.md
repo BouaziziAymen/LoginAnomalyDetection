@@ -45,15 +45,25 @@ Ensuite on applique un seuil (ex: 0.7) pour décider :
 - **bucket** : `security`
 - **scope** : `_default`
 - **collection** : `login`
+  
+## Lancer en local avec Docker Compose (recommandé)
 
-### Exemple de document enregistré
-```json
-{
-  "_class": "tn.devoteam.demo.detector.data.LoginEventDocument",
-  "type": "login_event",
-  "userId": "u123",
-  "ip": "10.0.0.4",
-  "country": "TN",
-  "deviceId": "d1",
-  "tsEpoch": 1768252081
-}
+Le plus simple est d’utiliser **Docker Compose** pour démarrer Couchbase + l’application.
+
+### Prérequis
+- Docker + Docker Compose
+- 
+
+## Notes / améliorations possibles
+
+Index N1QL dédiés (userId + tsEpoch) pour accélérer les requêtes.
+
+Ajout d’un mode REVIEW et d’un audit trail (ex: log des décisions).
+
+Tests plus complets (edge cases) + tests d’intégration avec Testcontainers.
+
+Monitoring (actuator metrics, traces, etc.).
+
+Tests plus complets (edge cases) + tests d’intégration avec Testcontainers.
+
+Monitoring (actuator metrics, traces, etc.).
